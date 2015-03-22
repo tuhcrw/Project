@@ -1,0 +1,16 @@
+base
+lattice
+ggplot2
+caret
+memoise
+dplyr
+rpart
+rpart.plot
+rattle
+randomForest
+plyr
+ISLR
+tree
+foreach
+iterators
+doParallel

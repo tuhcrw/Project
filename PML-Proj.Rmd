@@ -1,0 +1,144 @@
+---
+title: "Practical Machine Learning Project"
+author: "Chris Wilson"
+date: "Friday, March 20, 2015"
+output: html_document
+---
+####Background
+
+Six young healthy participants were asked to perform one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in five different fashions: exactly according to the specification (Class A), throwing the elbows to the front (Class B), lifting the dumbbell only halfway (Class C), lowering the dumbbell only halfway (Class D) and throwing the hips to the front (Class E).
+
+Read more: http://groupware.les.inf.puc-rio.br/har#weight_lifting_exercises
+
+####Question
+The goal is to predict the manner in which they did the exercise from the data supplied.  I will initially attempt to use random forests as speed is not currently a concern.  NB. Speed wasn't a concern until it took over 1 hour before I cancelled it, I used the forums for better advice on speedier solutions, see special thanks at bottom for links
+
+```{r, results="hide"}
+library(caret)
+library(memoise) # speed up reading data
+library(ggplot2)
+library(rpart)
+library(rpart.plot)
+library(rattle)
+library(plyr)
+library(dplyr)
+library(randomForest)
+library(ISLR)
+library(tree)
+
+library(parallel); library(doParallel)
+#registerDoParallel(clust <- makeForkCluster(detectCores()))
+
+
+set.seed(1)
+```
+
+#### Obtaining the Data
+
+Download and load the data into R
+```{r, results="hide"}
+getwd()
+
+r <- memoise(read.csv)
+system.time(trainingData<- r("data/pml-training.csv"))
+testData<- r("data/pml-testing.csv")
+dim(trainingData)
+#str(trainingData, list.len = 160)
+```
+
+Although I commented out the `str(trainingData)` command I can see there are a number of columns with NA as the values.  I will remove these before we continue.
+
+```{r}
+sum((colSums(!is.na(trainingData[,-ncol(trainingData)])) < 0.5*nrow(trainingData)))
+trainingDataRemovedNACols <- c((colSums(!is.na(trainingData[,-ncol(trainingData)])) >= 0.5*nrow(trainingData)))
+trainingData <-trainingData[,trainingDataRemovedNACols]
+dim(trainingData)
+```
+
+Remove columns with with little variance (nearZeroVar) also
+
+```{r}
+nzv_cols <-nearZeroVar(trainingData)
+if(length(nzv_cols)>0) trainingData <-trainingData[,-nzv_cols]
+#str(trainingData)
+dim(trainingData)
+```
+
+Remove irrelevant columns 
+```{r}
+delete_cols <- c('X', 'user_name', 'raw_timestamp_part_1', 'raw_timestamp_part_2', 'cvtd_timestamp', 'new_window', 'num_window')
+trainingData <- trainingData[, -which(names(trainingData) %in% delete_cols)]
+dim(trainingData)
+```
+
+#### Split the data
+split the training set into 2 so we can cross validate our data before we test it against the `supplied test data`using the `classe` field as y
+
+```{r, cache=TRUE}
+inTrain <- createDataPartition(y=trainingData$classe,
+                               p=0.9, list=FALSE)
+training <- trainingData[inTrain,]
+probe <- trainingData[-inTrain,]
+dim(training)
+#str(training)
+```
+
+#### Analyse the Data
+Use trees for a graphical representation (similiar to decision trees)
+```{r}
+fit <- rpart(classe~.,data=training)
+fancyRpartPlot(fit)
+```
+This tree is far too bushy to get any useful information, so I'll fit a model and create the tree again from that
+
+#### Build the Models
+```{r}
+modFit <- train(classe ~ .,method="rpart",data=training)
+print(modFit$finalModel)
+fancyRpartPlot(modFit$finalModel)
+
+rForest=randomForest(classe~.,data=training,ntree=50, importance=TRUE)
+rForest
+
+```
+
+#### Cross validation on the models
+````{r, cache=TRUE}
+confusionMatrix(predict(rForest,newdata=probe[,-ncol(probe)]),probe$classe)
+
+testingProbe <- predict(rForest, probe)
+#testingProbe
+```
+
+a very high accuracy rate of over 99%, I hope this is not overfitted
+
+#### Testing Against the Supplied Test Data
+````{r, cache=TRUE}
+theBigTest <- predict(rForest, testData)
+theBigTest
+````
+
+#### Submitting to Coursera
+```{r, cache=TRUE, results="hide"}
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }}
+
+pml_write_files(theBigTest)
+```
+
+All of the tests came back correct :)
+
+
+`Special Thanks to`
+https://class.coursera.org/predmachlearn-012/forum/thread?thread_id=61
+                   https://class.coursera.org/predmachlearn-012/forum/thread?thread_id=29
+                   http://www.statmethods.net/advstats/cart.html
+                   http://www.quora.com/How-do-random-forests-work-in-laymans-terms
+                   http://www.inside-r.org/node/86995
+                   http://stackoverflow.com/questions/11330138/find-columns-with-all-missing-values/11330265#11330265 
+                   http://stackoverflow.com/questions/28043393/nearzerovar-function-in-caret
+
